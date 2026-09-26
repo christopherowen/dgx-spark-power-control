@@ -22,6 +22,7 @@ command controls it. NVIDIA's firmware keeps enforcing its limits throughout.
 | Investigate recovery without restarting | [Firmware investigation](docs/no-restart-recovery.md) |
 | Check EC startup, retry and timer hypotheses | [Startup and ownership cross-check](docs/ec-startup-cross-check.md) |
 | Capture EC publication progress | [Optional passive diagnostic](diagnostics/ec-publication/README.md) |
+| Trace existing Linux firmware calls | [Passive FF-A trace](diagnostics/ffa-trace/README.md) |
 | Upgrade or remove the software | [Updates and removal](docs/maintenance.md) |
 
 ## A typical session

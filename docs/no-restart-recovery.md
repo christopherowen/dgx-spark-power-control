@@ -246,6 +246,13 @@ drain has been attempted.
 
 ## Firmware paths checked
 
+The [Linux FF-A collector](../diagnostics/ffa-trace/README.md) can record
+existing host call boundaries without additional firmware requests. It cannot
+see autonomous secure-partition transactions. The
+[private logging review](firmware-log-visibility.md) confirms an 8 KiB ring
+but finds that the proposed read/export cluster is the configuration store;
+a host-visible ring export remains unverified.
+
 The [startup and ownership cross-check](ec-startup-cross-check.md) verifies
 that window initialization clears the actual sensor-init flag and that the
 timer is configured before static-thread creation. Periodic requeue occurs

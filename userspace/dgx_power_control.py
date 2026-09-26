@@ -7,7 +7,9 @@ import argparse
 import errno
 import json
 import logging
+import os
 import sys
+import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -29,17 +31,41 @@ MAX_WATTS = Decimal(1000)
 LOG = logging.getLogger("dgx-power-control")
 
 
+def debug_event(event: str, **fields) -> None:
+    if LOG.isEnabledFor(logging.DEBUG):
+        LOG.debug(json.dumps({"event": event, "scope": "linux_hwmon",
+                              "at": datetime.now(timezone.utc).isoformat(),
+                              "monotonic_ns": time.monotonic_ns(),
+                              "pid": os.getpid(), **fields}, sort_keys=True))
+
+
+def read_text(path: Path) -> str:
+    """Log the existing attribute access, without adding a diagnostic read."""
+    start = time.monotonic_ns()
+    debug_event("read_begin", path=str(path))
+    try:
+        value = path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError) as exc:
+        debug_event("read_error", path=str(path), errno=getattr(exc, "errno", None),
+                    error=type(exc).__name__, elapsed_ns=time.monotonic_ns() - start)
+        raise
+    debug_event("read_end", path=str(path), value=value[:160],
+                elapsed_ns=time.monotonic_ns() - start)
+    return value
+
+
 def find_hwmon_device(hwmon_root: Path) -> Path:
     matches = []
     for candidate in sorted(hwmon_root.glob("hwmon*")):
         try:
-            name = (candidate / "name").read_text(encoding="ascii").strip()
+            name = read_text(candidate / "name")
         except (OSError, UnicodeError):
             continue
         if name == HWMON_NAME:
             matches.append(candidate)
     if len(matches) != 1:
         raise RuntimeError(f"expected one {HWMON_NAME!r} hwmon device, found {len(matches)}")
+    debug_event("device_selected", path=str(matches[0]))
     return matches[0]
 
 
@@ -47,7 +73,7 @@ def labelled_channels(device: Path, kind: str) -> dict[str, Path]:
     """Map labels to attribute prefixes; hwmon channel numbers are not an ABI here."""
     channels: dict[str, Path] = {}
     for label_path in sorted(device.glob(f"{kind}*_label")):
-        label = label_path.read_text(encoding="ascii").strip()
+        label = read_text(label_path)
         if label in channels:
             raise RuntimeError(f"duplicate {kind} label {label!r}")
         channels[label] = device / label_path.name.removesuffix("_label")
@@ -57,7 +83,7 @@ def labelled_channels(device: Path, kind: str) -> dict[str, Path]:
 def read_integer(path: Path) -> int | None:
     """Return None when the driver reports no data (an unpublished limit)."""
     try:
-        return int(path.read_text(encoding="ascii").strip())
+        return int(read_text(path))
     except OSError as exc:
         if exc.errno == errno.ENODATA:
             return None
@@ -92,7 +118,16 @@ def parse_watts(text: str) -> int:
 
 
 def write_cap(prefix: Path, microwatts: int) -> None:
-    attribute(prefix, "cap").write_text(f"{microwatts}\n", encoding="ascii")
+    path = attribute(prefix, "cap")
+    start = time.monotonic_ns()
+    debug_event("write_begin", path=str(path), value_uw=microwatts)
+    try:
+        path.write_text(f"{microwatts}\n", encoding="ascii")
+    except OSError as exc:
+        debug_event("write_error", path=str(path), errno=exc.errno,
+                    elapsed_ns=time.monotonic_ns() - start)
+        raise
+    debug_event("write_end", path=str(path), elapsed_ns=time.monotonic_ns() - start)
 
 
 def set_limit(device: Path, name: str, microwatts: int) -> None:
@@ -132,7 +167,7 @@ def status(device: Path) -> str:
         for field, label in SUMMARY
     ]
     hottest = max(read_integer(attribute(prefix, "input")) or 0 for prefix in temps.values())
-    prochot = (device / "prochot").read_text(encoding="ascii").strip()
+    prochot = read_text(device / "prochot")
     writable = all(attribute(power[name], "cap").stat().st_mode & 0o200 for name in LIMITS)
     lines = [
         " ".join(readings)
@@ -209,6 +244,8 @@ def format_diagnosis(report: dict) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--debug", action="store_true",
+                        help="log attribute accesses, timing and errors to stderr; no extra reads")
     parser.add_argument(
         "--hwmon-root",
         type=Path,
@@ -230,26 +267,34 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
+    LOG.setLevel(logging.DEBUG if args.debug else logging.INFO)
+    start = time.monotonic_ns()
+    debug_event("command_begin", command=args.command, hwmon_root=str(args.hwmon_root))
+    code = 1
     try:
         device = find_hwmon_device(args.hwmon_root)
         if args.command == "status":
             print(status(device))
-            return 0
-        if args.command == "diagnose":
+            code = 0
+        elif args.command == "diagnose":
             report = diagnose(device)
             print(json.dumps(report, indent=2) if args.json else format_diagnosis(report))
-            return 2 if report["unpublished_limits"] or report["applied_above_nvidia"] else 0
-        if args.command == "set-limit":
+            code = 2 if report["unpublished_limits"] or report["applied_above_nvidia"] else 0
+        elif args.command == "set-limit":
             set_limit(device, args.limit, parse_watts(args.watts))
-            return 0
-        if args.command == "automatic":
+            code = 0
+        elif args.command == "automatic":
             for name in restore(device, tuple(args.limits) or LIMITS):
                 LOG.warning("%s cleared, but NVIDIA's limit is unpublished; not verified", name)
-            return 0
-    except (OSError, RuntimeError, ValueError) as exc:
+            code = 0
+        else:
+            raise AssertionError(f"unhandled command: {args.command}")
+    except (OSError, RuntimeError, ValueError, UnicodeError) as exc:
+        debug_event("command_error", error=type(exc).__name__, errno=getattr(exc, "errno", None))
         LOG.error("%s", exc)
-        return 1
-    raise AssertionError(f"unhandled command: {args.command}")
+    finally:
+        debug_event("command_end", exit_code=code, elapsed_ns=time.monotonic_ns() - start)
+    return code
 
 
 if __name__ == "__main__":

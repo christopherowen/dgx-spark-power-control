@@ -38,6 +38,21 @@ anything, or attempts recovery. See [recovery research](no-restart-recovery.md).
 
 ## Read the telemetry
 
+To record the command's attribute accesses and errors:
+
+```sh
+dgx-power-control --debug diagnose --json > diagnosis.json 2> diagnosis-debug.log
+```
+
+Debug records on stderr include UTC and monotonic timestamps, PID, attribute
+path, value, elapsed time and errno. Begin/end records identify an unfinished
+read or write. Normal stdout and exit codes are unchanged, and debug mode
+does not add attribute reads or firmware requests. It logs the selected
+command's actions; using it with `set-limit` or `automatic` still performs
+those commands' normal writes. These are Linux hwmon logs, not secure-firmware
+logs. For passive communication timing, use the separate
+[FF-A trace collector](../diagnostics/ffa-trace/README.md).
+
 ```sh
 dgx-power-control status
 watch -n 1 dgx-power-control status
