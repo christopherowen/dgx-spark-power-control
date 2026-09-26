@@ -61,6 +61,21 @@ listed in the JSON output. The model does not establish dgx1's cause or provide
 a live recovery command. Both tools reject a different capsule before executing
 instructions and stop on unmodeled accesses or exhausted instruction budgets.
 
+The EC lifecycle replay uses the separate EC 3.5.8 capsule:
+
+```sh
+python3 diagnostics/ec-publication/replay_ec_lifecycle.py /path/to/ec_fused.cap
+```
+
+It checks 14 fixed scenarios plus eight logical power-state inputs. Original
+EC instructions exercise window initialization, publication, RTC error handling
+and thread-group selection; I2C, GPIO and RTOS boundaries are simulated. It
+demonstrates an ordering that clears previously published system limits without
+republishing them, and checks explanations that do not fit all observations.
+See the [lifecycle analysis](../../docs/ec-lifecycle-replay.md) for the assumptions
+and remaining evidence. This hash-pinned, bounded replay never contacts an EC
+and exposes no live recovery interface.
+
 ## What the live probe observes
 
 Loading the module performs one roughly eight-second capture, then exposes

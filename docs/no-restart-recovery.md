@@ -168,6 +168,16 @@ These distinctions leave selective task progress, work-queue progress and
 shared-window reinitialization as investigation targets. No host-exposed,
 non-disruptive control for those internal states has yet been established.
 
+The [EC lifecycle replay](ec-lifecycle-replay.md) now executes these branches
+offline. It confirms that a later observed 2 → 3 → 2 state transition can
+reinitialize the window and erase published system limits while their internal
+copies survive. It also confirms that unchanged state 2 does not retry the
+initializer. This supplied ordering is not evidence that dgx3 experienced it;
+package/RTC progress remains a separate gap. RTC is outside the power suspend
+group, and both active query tasks share the thermal task's group. A returned
+RTC I2C error writes `FF` into the time mirror instead of preserving old time.
+These results constrain a shared explanation without establishing a repair.
+
 ## Firmware paths checked
 
 These are interpretations of distributed release capsules matching the

@@ -217,6 +217,26 @@ in `PATH`. The transport replay is an optional capsule-dependent check, outside
 the standard suite; firmware is not distributed with tests. These results do
 not imply a GitHub CI run or a successful v2 hardware capture.
 
+## Offline EC lifecycle replay, 2026-09-26
+
+The hash-pinned EC 3.5.8 replay passed **14 scenarios and an eight-input
+power-state decoder check** using Unicorn 2.1.4. It executes original Thumb
+publication and initialization paths with simulated I2C, GPIO and RTOS
+boundaries. Checks include metadata preservation, clearing of existing budgets
+and packet data, initializer gating, asymmetric boot-ready signaling, system
+publication after a timeout, and erasure of published system limits on a
+supplied later state transition. RTC success/error behavior and the exact
+power suspend/resume group are also checked. See the
+[lifecycle analysis](ec-lifecycle-replay.md) for scope and interpretation.
+
+The replay refused a mismatched capsule and an entry outside its reviewed
+instruction ranges. All **34 project tests** passed locally with GNU coreutils
+first in `PATH`. This optional capsule-dependent replay is separate from the
+standard test suite. No driver changed, no new hardware validation was
+performed, and no live EC request, service restart, firmware write or reset
+was made during this follow-up. Neither dgx3 recovery nor dgx1 transport
+recovery has been demonstrated. These are local checks, not a GitHub CI result.
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from
