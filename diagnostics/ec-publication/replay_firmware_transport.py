@@ -242,8 +242,15 @@ def replay(image):
     require(model.transfers == [[2, 0x06000714, 64]] + [[0x25]] * 1001,
             "late completion: wait sequence")
     model.response, model.completion_ready = 8, True
-    failures = [model.read_version() for _ in range(3)]
-    require(failures == [-1, -1, -1], "late completion: persistent failures")
+    # A different address/alignment still submits a new request. These fixed
+    # offline cases do not create a live arbitrary-address interface.
+    retry_reads = [(0x06000760, 5), (0x06000700, 16), (0x06000740, 1),
+                   (0x06000754, 17), (0x06000714, 64)]
+    retry_start = len(model.transfers)
+    failures = [model.call(READ, address, length, OUTPUT) for address, length in retry_reads]
+    require(failures == [-1] * len(retry_reads), "late completion: persistent failures")
+    require(model.transfers[retry_start:] == [[2, address, length] for address, length in retry_reads],
+            "late completion: ordinary retry drained an old completion")
     background_start = len(model.transfers)
     require(model.call(HOUSEKEEPING) == 0, "late completion: housekeeping")
     model.call(ALERT)  # Void function; X0 is not a status result.
@@ -259,6 +266,8 @@ def replay(image):
     results.append({"case": "hypothetical_retained_credit",
                     "initial_timeout_status": -1,
                     "following_read_statuses": failures,
+                    "following_read_requests": [[hex(address), length] for address, length in retry_reads],
+                    "ordinary_retries_issued_get_pc": False,
                     "after_background_status": -1, "after_modeled_drain_status": 0,
                     "target_credit_behavior_verified": False,
                     "live_recovery_verified": False})

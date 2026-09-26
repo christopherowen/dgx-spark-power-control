@@ -178,6 +178,72 @@ group, and both active query tasks share the thermal task's group. A returned
 RTC I2C error writes `FF` into the time mirror instead of preserving old time.
 These results constrain a shared explanation without establishing a repair.
 
+### Mailbox mutex and read-based recovery
+
+The shared mailbox mutex at EC SRAM `0x118a28` is a concrete resource used by
+RTC replies and package/system notifications. Its current owner has **not**
+been observed. Mutex code `0xcaba0/0xcac90` stores the owner pointer at object
+`+8` and recursive count at `+0xc`; these internal fields are outside the
+published SRAM windows. A host mirror capture therefore cannot identify the
+owner or a blocked instruction pointer.
+
+The original call paths make a critical distinction:
+
+- RTC deferred work calls `0xc49b0(1, ..., 0x18000 ticks)` at `0xc19b4`.
+- Budget notification `0xc3d14` calls the same helper for channel 2 with
+  `0xccd` ticks, then calls sender `0xc4a4c`.
+- UCSI path `0xc52b8` calls wrapper `0xc4cec` for channel 1 with `0x148`
+  ticks and a busy-wait flag. The wrapper also holds the same mutex.
+- Each helper's acquisition uses an **infinite mutex timeout**. The finite
+  argument bounds the subsequent output-buffer polling, not time waiting for
+  another task to release the mutex. Status helper `0xc496c` acquires it
+  recursively, reads bit 0 through `0xc6734`, then releases one level.
+
+The [mailbox-wait replay](../diagnostics/ec-publication/replay_ec_mailbox_waits.py)
+executes these bounded paths. With a running owner, permanently busy status
+returns `-11` and releases the mutex after 300 RTC polling delays, 11 budget
+delays, or two UCSI-argument delays. The delays are simulated; this is not a
+wall-clock measurement. A supplied different owner blocks acquisition before
+any status poll. Pausing an owner while it holds the mutex and then clearing
+the modeled output-full bit does not release its software lock. Explicitly
+resuming that owner allows its original instructions to finish and unlock.
+That pause is an experiment input, not a reproduced scheduler failure.
+
+A data read can help **when output-full is the actual wait condition and its
+owner can run**. Microchip's matching register-map documentation says host
+DATA access clears OBF at byte 0 in one-byte mode or byte 3 in four-byte mode;
+status reads do not perform that consumption. See
+[MEC172x sections 14.12.1.1 and 14.12.6](https://ww1.microchip.com/downloads/en/DeviceDoc/MEC172x-Data-Sheet-DS00003583E.pdf).
+The precise silicon, live byte mode, ownership and host drain path still need
+verification. A consuming read could take another client's notification.
+
+The saved dgx3 channel-1 status was `0x08`, whose OBF bit is already clear.
+Replaying that value returns immediately. It does not establish channel-2
+status, the mutex owner, or conditions between samples. The saved 12:04 and
+12:23 captures also contain four zero fan-floor bytes; the normal first
+thermal iteration writes `FF` after package notification. Thus a first-pass
+wait in the mailbox helper occurs **after** package stores and cannot alone
+explain zero package values. A later window clear could erase them. Locks
+`0x11a004`, `0x11a018` and `0x119ff0` occur later in the thermal iteration;
+that ordering similarly limits a first-pass explanation involving them.
+
+The resource candidates remain distinct: RTC's initial boot-ready event
+`0x11a044`, RTC I2C mutex `0x11869c`, sensor I2C mutex `0x1186d4`, and the
+shared mailbox mutex above. The RTC and thermal thread objects are
+`0x1195e8` and `0x119888`. These addresses identify what a verified firmware
+debug snapshot would need to expose; they are not new host read targets.
+A logs-only check found no EC task/owner dump in dgx3's kernel journal or
+devcoredump inventory. No available observation identifies a live stalled PC.
+
+The separate eSPI transport model also tests five aligned/unaligned ordinary
+read retries after a hypothetical retained completion. All submit new requests
+and fail before reaching GET_PC; only a separately modeled completion drain
+releases that assumed target credit. Reading successive addresses does not
+advance a shared stream cursor. This remains a conditional explanation for
+dgx1's transport incident, which occurred after dgx3's original fault; the
+81-byte experiment was never run on dgx3. No read-until-success loop or live
+drain has been attempted.
+
 ## Firmware paths checked
 
 These are interpretations of distributed release capsules matching the

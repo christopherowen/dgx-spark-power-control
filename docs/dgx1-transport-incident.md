@@ -129,7 +129,10 @@ One scenario preserves the same emulated software state throughout:
    request slot held until that completion is consumed.** It reports PC_AVAIL
    set and NP_FREE clear.
 3. The original reader issues a new PUT_NP without waiting for NP_FREE. The
-   model responds with fatal error. Three subsequent small reads fail.
+   model responds with fatal error. Five subsequent reads fail: a five-byte
+   version read, an aligned 16-byte read, one byte at a 64-byte boundary, the
+   original 17-byte tail, and the original first 64-byte chunk. Each issues
+   only a new PUT_NP; none reaches GET_PC to consume the pending completion.
 4. The original housekeeping `0x9396c0a0` and alert handler `0x9396c308` leave
    this completion pending. They handle other channel bits but have no
    explicit PC_AVAIL branch. A further small read still fails.

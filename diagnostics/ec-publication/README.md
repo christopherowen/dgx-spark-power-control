@@ -108,6 +108,20 @@ cases neither establish the observed packet traffic's origin nor explain
 zero thermal limits by themselves. The JSON records assumptions, stop points,
 bus topology and calls. Live cause and recovery remain unestablished.
 
+The mailbox-wait replay follows the actual notification and status-polling
+helpers, including their nested recursive mutex acquisition:
+
+```sh
+python3 diagnostics/ec-publication/replay_ec_mailbox_waits.py /path/to/ec_fused.cap
+```
+
+Ten cases distinguish finite status polling from indefinite acquisition of
+the shared mailbox mutex. They check timeout cleanup, the saved status `08`,
+publication before notification, and supplied data-consumption/owner-resume
+orderings. Mutex ownership, scheduler progress, status bits and hardware
+handshakes are modeled inputs. This does not read the live owner or implement
+a drain operation. See [mailbox wait findings](../../docs/no-restart-recovery.md#mailbox-mutex-and-read-based-recovery).
+
 ## What the live probe observes
 
 Loading the module performs one roughly eight-second capture, then exposes

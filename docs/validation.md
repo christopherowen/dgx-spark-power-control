@@ -256,6 +256,32 @@ No driver changed or hardware experiment ran; neither machine was restarted.
 Reading investigation documents over SSH sent no EC requests. No live cause
 or recovery is established, and these checks are not a GitHub CI result.
 
+## Offline mailbox waits and retry boundaries, 2026-09-26
+
+The hash-pinned [mailbox-wait replay](../diagnostics/ec-publication/replay_ec_mailbox_waits.py)
+passed **10 cases** with Unicorn 2.1.4. It executes the original status helpers,
+notification path and nested mutex calls, with ownership, scheduling, delays
+and hardware status modeled explicitly. Finite output-buffer polling releases
+the mutex on timeout; acquisition of a mutex held by another task remains
+indefinite. Supplied data consumption lets a running owner finish but does not
+release a paused owner's lock. A thermal-path case verifies package stores
+precede the mailbox wait. A mismatched capsule and an unreviewed execution
+entry were refused.
+
+The transport replay again passed **11 cases and two configuration checks**.
+Its conditional retained-completion case now tries five fixed read
+address/length pairs with different alignments. All issue new requests and
+fail before GET_PC; varying the read boundary does not consume the modeled
+pending completion. Real target-credit behavior remains unverified.
+
+All **34 project tests** passed locally on macOS with GNU coreutils first in
+`PATH`. Saved captures and a logs-only dgx3 check were reviewed; the recorded
+boot ID was unchanged and no live task/owner dump was found. No EC request,
+consuming DATA read, driver change, restart or reset was performed in this
+follow-up. The live stalled owner and a recovery method remain unidentified.
+These optional capsule-dependent checks are separate from the standard suite
+and do not constitute hardware validation or a GitHub CI result.
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from
