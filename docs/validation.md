@@ -147,7 +147,10 @@ at a bound `nvidia-ffa-ec` endpoint before loading a module or printing capture
 data. The separate inventory found nine bound clients on the affected unit.
 This restricts live collection on the normal configuration; unbinding those
 clients is not an approved isolation method. No further live EC requests were
-made after the failed small-read check.
+made in that validation run after the failed small-read check. A later single
+read through the installed fan driver's own guarded path still returned
+submit status `0x05`; see the
+[fan-recovery assessment](no-restart-recovery.md#existing-fan-control-recovery).
 
 A separate temporarily loaded **read-only SPBM driver**, which makes no EC
 transport requests, still observed 140/142 W package and 231/244 W system

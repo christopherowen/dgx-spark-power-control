@@ -241,6 +241,46 @@ boot identity and monotonic ordering, while explicitly distinguishing
 publication progress from complete recovery. It cannot exclude an EC reset
 or infer continuous behavior between captures.
 
+### Existing fan-control recovery
+
+`dgx-spark-fan-control` already implements a proven rebootless recovery for a
+**stale relay-pending flag with a readable, idle physical mailbox**. Its
+[0.1.3 implementation](https://github.com/christopherowen/dgx-spark-fan-control/blob/deb2ea155f6698b769ff4977dea2119e3b32f460/kernel/dgx_ec_fan_control.c)
+matches the installed source on both units (SHA-256
+`e78e1178ab76732b46ebbe1b56cc03244951d3b2aa48c95cc84b9bd5b2c7f8a6`).
+It holds the existing fan owner's mutex, checks a plausible RTC and recognized
+response with two idle status reads, then permits one operation-4 floor read
+despite cached pending. It verifies the returned physical response and floor
+ownership. It does not reset the EC or blindly repeat a setter.
+
+The reference unit's current boot contains **six successful automatic
+recoveries**, most recently at 10:41:51 CEST, before the 13:20 transport
+incident. That establishes that this method was installed and working for its
+intended fault; rebootless transport recovery was not wholly unexplored.
+
+| Observed condition | Does this method apply? |
+| --- | --- |
+| Packet polls stay at state `2`, while physical status is readable and idle | Yes, subject to the driver's additional response and ownership guards; demonstrated earlier on the reference unit. |
+| Submit returns secure status `0x05` / `-EIO`, and even the fixed version read fails | No demonstrated recovery. The current reference-unit incident follows this path. Recovery is entered for `-ETIMEDOUT`, not every submission error. |
+| EC responds, but budgets are zero and periodic time publication is frozen | No demonstrated producer repair. This is the affected unit's original condition. |
+
+The affected unit's fan probe had already received floor `0x0000` at boot and
+refused to bind because it would replace an existing floor. This is not a
+logged stale-pending timeout. In the EC image, operation 4 branches from
+`0xc3900` to `0xc3998`, reads mirror offset `0x192`, places the value in the
+reply, and acknowledges through `0xc4a4c`. It does not directly invoke the
+package/system publishers or producer-thread resume routines.
+
+The older operator helper is pinned to kernel `6.17.0-1029-nvidia` and private
+driver layouts for versions 0.1.0/0.1.1; it is not applicable to these loaded
+0.1.3 drivers on kernel 7.0. At **13:36:18 CEST**, one `cur_state` read through
+the installed reference-unit driver returned `EIO`, with operation 4 submit
+status `0x05` again. Its ordinary pending preflight reached submission rather
+than the timeout-recovery branch. The OEM endpoint was unbound, no diagnostic
+probe was loaded, and the host boot ID stayed unchanged. No helper, forced
+retry, floor write or service restart was executed. The installed recovery
+guards were left intact, and no read was repeated.
+
 ### Criteria for an active experiment
 
 The next useful mechanism would resynchronize host/EC initialization or resume
