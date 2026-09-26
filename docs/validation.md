@@ -237,6 +237,25 @@ performed, and no live EC request, service restart, firmware write or reset
 was made during this follow-up. Neither dgx3 recovery nor dgx1 transport
 recovery has been demonstrated. These are local checks, not a GitHub CI result.
 
+## Offline EC producer replay, 2026-09-26
+
+The separate hash-pinned producer replay passed **14 cases and a three-bus
+topology check** with Unicorn 2.1.4. Original instructions publish package
+limits despite returned sensor-I2C errors or a failed notification. Supplied
+mutex waits distinguish the RTC and sensor buses; a notification wait occurs
+after the package stores. Two supplied event orderings let queries continue
+after boot-ready is cleared while RTC waits for it, despite a pending RTC
+timer event. The timer posts that event before work submission. These cases
+stop at explicit boundaries and do not execute the full thermal policy, I2C
+controller, RTOS scheduler or physical hardware. Details and assumptions are
+in the [diagnostic README](../diagnostics/ec-publication/README.md#offline-firmware-replay).
+
+A mismatched capsule and unreviewed execution entry were refused. All **34
+project tests** passed locally on macOS with GNU coreutils first in `PATH`.
+No driver changed or hardware experiment ran; neither machine was restarted.
+Reading investigation documents over SSH sent no EC requests. No live cause
+or recovery is established, and these checks are not a GitHub CI result.
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from

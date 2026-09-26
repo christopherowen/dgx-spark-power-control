@@ -76,6 +76,38 @@ See the [lifecycle analysis](../../docs/ec-lifecycle-replay.md) for the assumpti
 and remaining evidence. This hash-pinned, bounded replay never contacts an EC
 and exposes no live recovery interface.
 
+The producer replay extends this with original thermal startup, I2C wrappers,
+RTC reads, query loops and timer callback instructions:
+
+```sh
+python3 diagnostics/ec-publication/replay_ec_producers.py /path/to/ec_fused.cap
+```
+
+Its 14 fixed cases distinguish a returned error from a wait that never returns.
+All ten sensor-initialization writes can return errors and the thermal path
+still publishes 140/142 W package limits. A failed notification also leaves
+those stores intact. A supplied wait inside the notification stops before fan
+initialization but after the package stores. These results constrain where an
+uninterrupted first thermal iteration could stop; a later window clear can
+still erase earlier publication.
+
+The initialized device table and executed wrappers select separate controllers
+and mutexes for RTC (bus 0, mutex `0x11869c`) and sensors (bus 2, mutex
+`0x1186d4`). Holding one modeled mutex does not stop the other producer.
+An RTC error that returns releases its mutex and publishes `FF` bytes; a
+supplied mutex wait preserves the old mirror. Actual mutex owners and hardware
+controller progress are outside the model.
+
+Two explicit event orderings let a query pass boot-ready, execute PLTRST work
+that clears boot-ready, then execute the timer callback and start RTC. RTC
+waits for boot-ready even though its separate periodic-event bit is pending;
+the already-started query continues another iteration. The timer posts that
+bit before submitting work, without running the workqueue. Timing, event and
+sleep results are supplied, not a simulation of the RTOS scheduler. These
+cases neither establish the observed packet traffic's origin nor explain
+zero thermal limits by themselves. The JSON records assumptions, stop points,
+bus topology and calls. Live cause and recovery remain unestablished.
+
 ## What the live probe observes
 
 Loading the module performs one roughly eight-second capture, then exposes
