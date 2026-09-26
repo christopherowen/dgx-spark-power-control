@@ -62,6 +62,21 @@ overwrite plausible, but the capture alone does not distinguish these causes
 or prove the cause of the original latch. A successful generic completion
 must not be treated as a successful repair acknowledgement.
 
+There is a concrete matching source of background traffic in the SoC firmware:
+SCI event `0xe2` dispatches through `0x93972454` to `0x93978440`. That routine
+constructs `12 00 00 00` followed by four bytes from `0x1c23880c`, the verified
+`SPBM_PWR_AVG_EWMA_S_SYSPL1_OFFSET` register. It submits the eight-byte packet
+through `0x93979030`. The EC's opcode-`0x12` branch at `0xc4c30` consumes that
+power measurement and acknowledges through the common response path. Its
+unchanged three-byte prefix matches the unexpected generic response.
+
+The common sender checks the hardware mailbox's busy bits but does not check
+the generic-pending flag. Combined with the response dispatcher above, this
+provides a specific competing-transaction path to investigate. It is static
+evidence of a matching producer, not a runtime trace proving which transaction
+supplied the captured bytes. It also does not establish the original latch's
+cause. Excluding Linux clients alone cannot exclude this firmware traffic.
+
 The unexpected response was preserved before clearing only its nonsecure
 output-available flag, using an exact full-buffer match. No request was
 retried, and no EC event register was cleared by Linux. The shared transport
