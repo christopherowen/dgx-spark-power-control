@@ -193,6 +193,56 @@ worth fixing, but cannot alone explain the EC-visible zeros and stale time.
 
 ## Required evidence for a live repair
 
+### Read fidelity and observer effects
+
+The legacy FF-A response path is not a Linux-accessible replacement for the
+status-discarding RESP2 path: the SoC dispatcher at `0x9395f518` admits source
+partition `0x8002` and consumes a shared-memory protocol. No legacy request
+was sent from Linux.
+
+The OEM12 reader at `0x9396c80c` divides reads into 64-byte chunks and a
+remainder, returning early on a failed chunk. This suggested placing the
+version canary after the budgets in one 81-byte request. On the healthy
+control that experiment failed its version check (`-EBADMSG`). At the same
+time the fan client's transactions began returning firmware status 5. Its
+daemon exhausted retries, failed automatic restoration, and exited; silence
+after six seconds was **not recovery**. A later original-size version read
+also returned zeros and was refused. Both diagnostic modules unloaded and
+the host boot ID stayed unchanged. The cause of the transport failure is not
+established; this is treated as an investigation-induced incident. The larger
+request was not repeated and was never sent on the affected unit. It is
+excluded from the repository implementation, and live EC experiments stopped.
+
+The retained probe uses only the original five address/length pairs. It now
+checks the version before and after each sample, requires two budget reads to
+agree at each endpoint, aborts without retry on disagreement, and preserves
+the actual probe failure code. These checks strengthen evidence but cannot
+recover the discarded inner status or rule out repeated masked read failures.
+The collector now also refuses any bound Linux client on firmware partition
+`8003`, even when that client has a different endpoint UUID. Previously it
+checked only the OEM endpoint; the fan endpoint shares the same partition.
+This preflight cannot serialize firmware background producers or a later
+Linux binding. It is an additional refusal condition, not proof of isolation.
+
+After reading, the SoC routine calls `0x9396c0a0`, which can service pending
+background events. Consequently, packet activity during passive collection
+does not prove that the same timing or traffic would occur without an
+observer. No Linux EC command packet or event ACK is submitted by this probe.
+
+The affected unit's kernel boot log reports EFI RTC time **07:31:32 UTC**, the
+same timestamp still present in the EC mirror hours later. This supports
+investigating startup publication progress; it does not establish a particular
+deadlock, nor justify treating a direct RTC query as a harmless next step.
+The existing RTC-worker query already demonstrated unsafe response ownership.
+
+V2 captures include a host boot ID and can be compared offline with
+`analyze.py after.txt --baseline before.txt`. The comparison verifies host
+boot identity and monotonic ordering, while explicitly distinguishing
+publication progress from complete recovery. It cannot exclude an EC reset
+or infer continuous behavior between captures.
+
+### Criteria for an active experiment
+
 The next useful mechanism would resynchronize host/EC initialization or resume
 the existing producer tasks, while keeping the host and EC running. Its full
 call path must be traced before sending it; a nearby command number or a name

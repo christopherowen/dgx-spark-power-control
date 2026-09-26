@@ -5,6 +5,24 @@ evidence below SPBM when `dgx-power-control diagnose` reports missing limits.
 It does **not** implement a recovery command, replace the hwmon driver, or
 install a daemon. It is excluded from the normal build, DKMS, and autoload.
 
+**Live collection is currently restricted.** A larger-read experiment caused
+a communication incident on the reference unit, described in the
+[validation record](../../docs/validation.md#diagnostic-revision-and-transport-incident-2026-09-26).
+The collector now refuses bound clients on the shared firmware partition,
+including NVIDIA's built-in EC clients on a normally configured Spark. Do not
+unbind those clients to bypass the refusal. Offline analysis and the regular
+SPBM `diagnose` command remain usable.
+
+Inventory the shared clients without root or any firmware request:
+
+```sh
+python3 diagnostics/ec-publication/inspect_clients.py
+```
+
+This reports every Linux endpoint sharing partition `8003`, its UUID and
+bound driver, including clients missed by an OEM-endpoint-only check. Exit 0
+means the inventory was read, not that collection is permitted.
+
 The investigation currently targets P4242, kernel `7.0.0-1019-nvidia`, EC 3.5.8,
 and SoC 2.155.11 only. `collect.sh` requires that exact reported inventory and
 the validated DSDT digest. The module separately checks DMI, the FF-A endpoint,
@@ -22,6 +40,9 @@ firmware requests. There are no writable attributes or module parameters.
 - Mailbox status before/after each sample, the observed opcode, and whether
   the first eight bytes changed since the preceding sample. Packet payloads
   and unrelated SRAM are not exposed.
+- Version checks before and after each sample, plus two agreeing budget reads
+  at each endpoint. A failed check or disagreement aborts without retry.
+- Host boot ID, monotonic sample timing and capture time for offline comparison.
 
 The only firmware operation is the traced OEM12 fixed-address read. Allowed
 address/length pairs are hard-coded: version `0x06000760/5`, source limits
@@ -37,14 +58,18 @@ other Linux drivers can still produce their own background traffic.
 
 **The SoC RESP2 wrapper discards the inner EC read status.** A successful FF-A
 call is not proof that every EC read succeeded. The version canaries detect
-some failures, not all. The samples are sequential, can be torn, and can miss
+some failures, not all, even when placed immediately around a sample. Repeated
+masked failures can agree. The samples are sequential, can be torn, and can miss
 traffic between them; they do not establish request/response ownership. A
 static RTC mirror does not prove the physical RTC is stopped.
+The firmware reader can also service pending background events after a read;
+the observer must not be assumed to leave firmware scheduling unaffected.
 
 ## Build, sign, collect
 
 Run between compute jobs on a validated Spark. The collector requires an
-unbound OEM endpoint and at least 5 GiB available memory; it does not stop a
+unbound OEM endpoint, no bound Linux client on firmware partition `8003`
+(including other UUID endpoints), and at least 5 GiB available memory; it does not stop a
 service, unbind another driver, or change system configuration. Build as the
 ordinary user from the repository root:
 
@@ -80,6 +105,8 @@ unloads it, and verifies that its module and endpoint binding are gone and
 the boot ID is unchanged. It also attempts removal on error or interruption.
 Check the exit status. A failed removal is an error, never a successful capture.
 An abrupt machine failure or uncatchable process termination can bypass cleanup.
+The preflight client check is a point-in-time observation, not a cross-driver
+lock; it cannot stop a later binding or firmware's own background traffic.
 
 `analyze.py` is offline and unprivileged. It refuses incomplete captures,
 missing cleanup evidence, invalid version/time fields, implausible budgets,
@@ -87,6 +114,21 @@ missing or reordered samples, and invalid timing. Exit 0 means the input was
 parsed, **not** that the machine is healthy; exit 1 means invalid input. Its JSON
 assessment distinguishes the observed fault pattern from publication progress
 and inconclusive evidence. It does not claim recovery or GPU performance.
+
+The current collector writes v2 records; the analyzer still accepts v1 records
+and reports their weaker version-check coverage. To compare two completed v2
+captures from the same host boot:
+
+```sh
+python3 diagnostics/ec-publication/analyze.py local/after.txt --baseline local/before.txt
+```
+
+The comparison rejects different/missing boot IDs, reversed capture dates,
+and overlapping or reversed monotonic sample intervals. It distinguishes a
+repeated publication fault from newly observed publication progress. A host
+boot ID does not detect an EC reset or service restart. Endpoints cannot prove
+continuous behavior between captures, and publication progress still needs
+SPBM and workload validation before being called recovery.
 
 Keep captures and built modules out of commits. Only original source, synthetic
 test data and summarized findings belong in the repository. The earlier

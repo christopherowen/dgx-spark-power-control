@@ -34,7 +34,12 @@ workers=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
 endpoint=
 for candidate in /sys/bus/arm_ffa/devices/*; do
     [[ -r $candidate/modalias ]] || continue
-    if [[ $(cat "$candidate/modalias") == arm_ffa:8003:884a63a0-3285-4120-83aa-eec008a0a546 ]]; then
+    alias=$(cat "$candidate/modalias")
+    # Different UUID endpoints can share the same firmware partition/transport.
+    if [[ $alias == arm_ffa:8003:* && -L $candidate/driver ]]; then
+        fail "Firmware partition 8003 has a bound Linux client: $candidate."
+    fi
+    if [[ $alias == arm_ffa:8003:884a63a0-3285-4120-83aa-eec008a0a546 ]]; then
         [[ -z $endpoint ]] || fail "Multiple matching endpoints."
         endpoint=$candidate
     fi
@@ -52,9 +57,10 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
-printf 'capture_format=ec-publication-v1\n'
+printf 'capture_format=ec-publication-v2\n'
 printf 'captured_at=%s\n' "$(date --iso-8601=seconds)"
 printf 'module_sha256=%s\n' "$(sha256sum "$module" | cut -d ' ' -f 1)"
+printf 'boot_id=%s\n' "$boot_before"
 loaded=1
 insmod "$module"
 for part in initial trace final; do

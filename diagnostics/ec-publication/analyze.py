@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+from statistics import median
 import sys
 
 LIMITS = ("pl1", "pl2", "syspl1", "syspl2", "syspl3", "syspl4")
@@ -19,6 +20,8 @@ SAMPLE = re.compile(
     r"opcode=([0-9a-f]{2}) packet_changed=([01]) rtc_bcd=([0-9a-f]{12})"
 )
 TRACE_HEADER = "schema=1 samples=24 submitted_packets=0 inner_status_available=0"
+TRACE_HEADER_V2 = ("schema=2 samples=24 submitted_packets=0 inner_status_available=0 "
+                   "version_checks=52 budget_pairs=2")
 FOOTER = "probe_unloaded=1 oem_unbound=1 boot_unchanged=1"
 
 
@@ -32,15 +35,24 @@ def rtc_time(value: str) -> datetime:
 
 def analyze(text: str) -> dict:
     lines = text.splitlines()
-    if len(lines) != 34 or lines[0] != "capture_format=ec-publication-v1":
-        raise ValueError("not a complete ec-publication-v1 capture")
+    version, boot_id = 1, None
+    if lines and lines[0] == "capture_format=ec-publication-v2":
+        if len(lines) != 35 or not re.fullmatch(
+                r"boot_id=[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", lines[3]):
+            raise ValueError("not a complete v2 capture with a boot ID")
+        version, boot_id = 2, lines.pop(3).removeprefix("boot_id=")
+    if len(lines) != 34 or lines[0] != f"capture_format=ec-publication-v{version}":
+        raise ValueError("not a complete ec-publication-v1/v2 capture")
     if not lines[1].startswith("captured_at="):
         raise ValueError("missing capture timestamp")
-    datetime.fromisoformat(lines[1].removeprefix("captured_at="))
+    captured_at = datetime.fromisoformat(lines[1].removeprefix("captured_at="))
+    if captured_at.utcoffset() is None:
+        raise ValueError("capture timestamp needs a UTC offset")
     if not re.fullmatch(r"module_sha256=[0-9a-f]{64}", lines[2]):
         raise ValueError("missing module digest")
     if (lines[3] != "capture_part=initial" or lines[5] != "capture_part=trace"
-            or lines[6] != TRACE_HEADER or lines[31] != "capture_part=final"
+            or lines[6] != (TRACE_HEADER_V2 if version == 2 else TRACE_HEADER)
+            or lines[31] != "capture_part=final"
             or lines[33] != FOOTER):
         raise ValueError("capture framing or cleanup evidence invalid")
     publications = []
@@ -94,11 +106,19 @@ def analyze(text: str) -> dict:
     else:
         assessment = "inconclusive"
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "capture_version": version,
+        "boot_id": boot_id,
         "assessment": assessment,
         "captured_at": lines[1].removeprefix("captured_at="),
         "module_sha256": lines[2].removeprefix("module_sha256="),
         "elapsed_seconds": elapsed,
+        "first_sample_ns": observations[0]["start_ns"],
+        "last_sample_end_ns": previous_end,
+        "sample_duration_ms": {
+            "median": median(row["duration_ns"] for row in observations) / 1_000_000,
+            "max": max(row["duration_ns"] for row in observations) / 1_000_000,
+        },
         "initial": publications[0],
         "final": publications[1],
         "rtc_changes": changes,
@@ -111,10 +131,48 @@ def analyze(text: str) -> dict:
         ),
         "cleanup_verified": True,
         "inner_ec_read_status_available": False,
+        "version_checks_bracket_samples": version == 2,
+        "paired_budget_reads_agree": True if version == 2 else None,
         "limitations": [
             "Sequential samples can miss traffic and do not identify request/response ownership.",
-            "The firmware discards inner EC read status; version canaries do not validate every read.",
+            ("Bracketing canaries and agreeing budget pairs cannot prove individual read success "
+             "or atomicity; repeated masked failures and firmware housekeeping errors remain possible."
+             if version == 2 else
+             "Legacy separate canaries do not validate individual budget/time reads."),
+            "The firmware discards inner EC read status and may service background events after a read.",
             "This measures publication, not physical RTC, task state, GPU health or recovery.",
+        ],
+    }
+
+
+def compare(before: dict, after: dict) -> dict:
+    """Compare completed captures from one host boot, without inferring continuity."""
+    if not before["boot_id"] or before["boot_id"] != after["boot_id"]:
+        raise ValueError("comparison requires v2 captures with the same boot ID")
+    seconds = (datetime.fromisoformat(after["captured_at"]) -
+               datetime.fromisoformat(before["captured_at"])).total_seconds()
+    if seconds <= 0:
+        raise ValueError("baseline must precede the current capture")
+    if after["first_sample_ns"] <= before["last_sample_end_ns"]:
+        raise ValueError("comparison samples overlap or are out of order")
+    rtc_seconds = (datetime.fromisoformat(after["final"]["rtc"]) -
+                   datetime.fromisoformat(before["final"]["rtc"])).total_seconds()
+    progress = (before["assessment"] == "zero_budgets_static_time_mailbox_changes" and
+                after["assessment"] == "budgets_and_time_publication_observed")
+    persistent = (before["assessment"] == after["assessment"] ==
+                  "zero_budgets_static_time_mailbox_changes" and rtc_seconds == 0)
+    return {
+        "assessment": ("publication_progress_observed" if progress else
+                       "publication_fault_observed_again" if persistent else "inconclusive"),
+        "same_host_boot": True,
+        "capture_start_separation_seconds": seconds,
+        "sample_gap_seconds": (after["first_sample_ns"] - before["last_sample_end_ns"]) / 1_000_000_000,
+        "final_rtc_difference_seconds": rtc_seconds,
+        "final_source_budgets_changed": before["final"]["source_mw"] != after["final"]["source_mw"],
+        "limitations": [
+            "Endpoint observations do not establish continuous behavior between captures.",
+            "An unchanged host boot ID does not exclude an EC reset or a service restart.",
+            "Publication progress alone does not establish GPU performance recovery.",
         ],
     }
 
@@ -122,9 +180,14 @@ def analyze(text: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("capture", type=Path)
+    parser.add_argument("--baseline", type=Path,
+                        help="compare an earlier v2 capture from the same host boot")
     args = parser.parse_args(argv)
     try:
         report = analyze(args.capture.read_text(encoding="ascii"))
+        if args.baseline:
+            before = analyze(args.baseline.read_text(encoding="ascii"))
+            report["comparison"] = compare(before, report)
     except (OSError, UnicodeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

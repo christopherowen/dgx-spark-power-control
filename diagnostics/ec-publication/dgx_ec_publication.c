@@ -5,7 +5,8 @@
  * driver or recovery interface; deliberately excluded from DKMS/autoload.
  *
  * OEM12 RESP2 does not return the inner EC read status. Transport success and
- * the version canary cannot establish that every individual read succeeded.
+ * bracketing version checks and agreeing budget pairs strengthen evidence,
+ * but do not recover the discarded status or establish atomicity.
  * No EC command packet, setter, event ACK or nonsecure mailbox write is used.
  */
 #include <linux/arm_ffa.h>
@@ -67,24 +68,54 @@ static int read_fixed(struct ffa_device *dev, u32 address, u32 length, u8 *out)
 	return ret;
 }
 
-static int read_publication(struct ffa_device *dev, struct publication *p)
+static int read_version(struct ffa_device *dev, u8 *version)
 {
+	u8 data[5];
 	int ret;
 
-	ret = read_fixed(dev, 0x06000760, sizeof(p->version), p->version);
+	ret = read_fixed(dev, 0x06000760, sizeof(data), data);
 	if (ret)
 		return ret;
-	if (memcmp(p->version, expected_version, sizeof(expected_version)))
+	if (memcmp(data, expected_version, sizeof(expected_version))) {
+		dev_err(&dev->dev, "version check failed: %5phN\n", data);
 		return -EBADMSG;
-	ret = read_fixed(dev, 0x06000714, sizeof(p->limits), p->limits);
-	if (ret)
-		return ret;
-	return read_fixed(dev, 0x06000788, sizeof(p->rtc), p->rtc);
+	}
+	memcpy(version, data, sizeof(data));
+	return 0;
 }
 
-static int capture_probe(struct ffa_device *dev)
+static int read_publication(struct ffa_device *dev, struct publication *p)
 {
-	u8 packet[8], previous[8] = { 0 };
+	struct publication candidate;
+	u8 limits[24], version[5];
+	int ret;
+
+	ret = read_version(dev, candidate.version);
+	if (ret)
+		return ret;
+	ret = read_fixed(dev, 0x06000714, sizeof(candidate.limits), candidate.limits);
+	if (ret)
+		return ret;
+	ret = read_fixed(dev, 0x06000714, sizeof(limits), limits);
+	if (ret)
+		return ret;
+	if (memcmp(limits, candidate.limits, sizeof(limits))) {
+		dev_err(&dev->dev, "budget reads disagree; capture refused without retry\n");
+		return -EAGAIN;
+	}
+	ret = read_fixed(dev, 0x06000788, sizeof(candidate.rtc), candidate.rtc);
+	if (ret)
+		return ret;
+	ret = read_version(dev, version);
+	if (ret)
+		return ret;
+	*p = candidate;
+	return 0;
+}
+
+static int capture_run(struct ffa_device *dev)
+{
+	u8 packet[8], previous[8] = { 0 }, version[5];
 	unsigned int i;
 	int ret;
 
@@ -101,6 +132,9 @@ static int capture_probe(struct ffa_device *dev)
 		struct observation *s = &observations[i];
 
 		s->start_ns = ktime_get_ns();
+		ret = read_version(dev, version);
+		if (ret)
+			return ret;
 		ret = read_fixed(dev, 0x06000504, 1, &s->status_before);
 		if (ret)
 			return ret;
@@ -116,6 +150,9 @@ static int capture_probe(struct ffa_device *dev)
 		ret = read_fixed(dev, 0x06000504, 1, &s->status_after);
 		if (ret)
 			return ret;
+		ret = read_version(dev, version);
+		if (ret)
+			return ret;
 		s->end_ns = ktime_get_ns();
 		if (i + 1 < CAPTURE_SAMPLES)
 			msleep(317);
@@ -123,9 +160,14 @@ static int capture_probe(struct ffa_device *dev)
 	ret = read_publication(dev, &final);
 	if (ret)
 		return ret;
-	probe_result = 0;
 	dev_info(&dev->dev, "passive publication capture complete; inner EC read status unavailable\n");
 	return 0;
+}
+
+static int capture_probe(struct ffa_device *dev)
+{
+	probe_result = capture_run(dev);
+	return probe_result;
 }
 
 static ssize_t publication_show(const struct publication *p, char *buf)
@@ -152,7 +194,7 @@ static ssize_t trace_show(struct kobject *k, struct kobj_attribute *a, char *buf
 {
 	unsigned int i;
 	ssize_t n = sysfs_emit(buf,
-		"schema=1 samples=24 submitted_packets=0 inner_status_available=0\n");
+		"schema=2 samples=24 submitted_packets=0 inner_status_available=0 version_checks=52 budget_pairs=2\n");
 
 	for (i = 0; i < CAPTURE_SAMPLES; i++) {
 		const struct observation *s = &observations[i];
@@ -221,4 +263,4 @@ module_init(capture_init);
 module_exit(capture_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Bounded passive EC publication diagnosis, not recovery");
-MODULE_VERSION("0.1.0");
+MODULE_VERSION("0.2.0");

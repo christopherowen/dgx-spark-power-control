@@ -119,6 +119,58 @@ proprietary firmware semantics or perform hardware I/O.
 Raw captures, signed binaries and prior research prototypes remain in ignored
 `local/`. Only the bounded diagnostic source and summarized findings are tracked.
 
+## Diagnostic revision and transport incident, 2026-09-26
+
+The revised optional module is version **0.2.0**. It keeps the original five
+address/length pairs, brackets each sample with version checks, compares two
+budget reads at each endpoint, and returns the actual probe failure code.
+V2 records include boot identity; the offline analyzer checks comparison
+ordering and reports sample latency. V1 captures remain readable with their
+weaker checks explicitly identified. `inspect_clients.py` inventories FF-A
+sysfs bindings without sending any firmware request.
+
+An excluded experiment attempted one 81-byte read spanning budgets and the
+version canary on the healthy reference unit at **13:20 CEST**. Its canary
+failed. Concurrent fan-client requests began returning firmware status 5;
+the daemon exhausted its retries, could not restore automatic control, and
+exited at 13:20:07. A later attempt using the original five-byte version read
+returned all zeros and the revised module refused it with `-EBADMSG`.
+Both probes unloaded. This is treated as an investigation-induced transport
+incident, not a successful diagnostic capture. Its precise cause remains
+unresolved; the fan-control service remains failed and its floor unverified.
+The 81-byte request was not repeated and was never sent to the affected unit.
+The larger-read implementation is absent from Git; its evidence is private.
+
+The collector now refuses any bound Linux client sharing partition `8003`,
+including other UUIDs. On the reference unit, the actual collector refused
+at a bound `nvidia-ffa-ec` endpoint before loading a module or printing capture
+data. The separate inventory found nine bound clients on the affected unit.
+This restricts live collection on the normal configuration; unbinding those
+clients is not an approved isolation method. No further live EC requests were
+made after the failed small-read check.
+
+A separate temporarily loaded **read-only SPBM driver**, which makes no EC
+transport requests, still observed 140/142 W package and 231/244 W system
+limits on the reference unit at 13:26 CEST. At 13:27 CEST the affected unit
+still had missing ceilings and the 20/20 W package, 30/30 W system fallback.
+Both SPBM modules unloaded, both boot IDs stayed unchanged, and no host,
+EC or service restart was performed. Those SPBM values do not establish
+transport, fan-policy or GPU health.
+
+All **34 project tests** passed on target Linux. The revised C module built
+with `W=1` on both units; only the existing compiler-name and missing-BTF
+messages appeared. Tests exercise early and trailing canary failure, differing
+budget reads, unchanged outputs after failure, no retry, shared-partition
+client refusal, v1/v2 framing and comparison chronology. Twelve diagnostic
+tests also passed on macOS. **A complete successful v2 hardware capture has
+not been obtained**, and the comparison command has only synthetic v2 evidence.
+
+| Revised source built/tested | SHA-256 |
+| --- | --- |
+| `diagnostics/ec-publication/dgx_ec_publication.c` | `e3d765df60b18eea627f0a411cf76479924707dd80f3b9008c2b03edae29fb95` |
+| `diagnostics/ec-publication/collect.sh` | `8614b1b03e597bca9cdae88bd41967771b307f7b52a9580ee32eee76cf634ca5` |
+| `diagnostics/ec-publication/analyze.py` | `a2cc2108f04769c7bcc81789d2cf4e70927ea1e7567ca3fe6d5bb4ec5ff4d4ce` |
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from
