@@ -46,6 +46,21 @@ and does not reproduce the physical transport incident. See the
 [incident analysis](../../docs/dgx1-transport-incident.md) for interpretation
 and the next evidence required. The capsule is not included in this repository.
 
+The deeper transport replay executes the lower reader, FIFO transaction,
+error cleanup, housekeeping and alert-handler instructions:
+
+```sh
+python3 diagnostics/ec-publication/replay_firmware_transport.py /path/to/socfw.cap
+```
+
+Its 11 scenarios check normal/failing reads, completion validation, deferred
+responses and a **hypothetical** retained-completion failure followed by a
+modeled drain. Two configuration cases check response-modifier handling.
+Controller registers, FIFO data and target queue behavior are synthetic and
+listed in the JSON output. The model does not establish dgx1's cause or provide
+a live recovery command. Both tools reject a different capsule before executing
+instructions and stop on unmodeled accesses or exhausted instruction budgets.
+
 ## What the live probe observes
 
 Loading the module performs one roughly eight-second capture, then exposes
@@ -81,6 +96,10 @@ traffic between them; they do not establish request/response ownership. A
 static RTC mirror does not prove the physical RTC is stopped.
 The firmware reader can also service pending background events after a read;
 the observer must not be assumed to leave firmware scheduling unaffected.
+The deeper replay additionally shows missing software checks of completion
+type, tag and length, and an unchecked deferred GET_PC response. Conditional on
+those inputs reaching software, a successful inner read can itself return
+stale or mismatched data. Hardware filtering and live occurrence are unknown.
 
 ## Build, sign, collect
 

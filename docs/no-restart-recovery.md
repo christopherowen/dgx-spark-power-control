@@ -219,6 +219,21 @@ In particular, 64-byte wrapper chunks must not be confused with the firmware's
 requested 4096-byte maximum read size. A simple read-boundary violation has
 not been established as the cause.
 
+The deeper [transport replay](../diagnostics/ec-publication/replay_firmware_transport.py)
+also executes the lower reader and background handlers. Supplied short,
+unsuccessful or wrong-tag completion headers are not validated by this software
+path. An error response to deferred GET_PC can be followed by success and a copy
+of the old receive buffer. These are conditional software behaviors, not proof
+that the physical controller delivered such completions on either unit.
+Canaries therefore cannot certify even an inner read that returns success.
+
+A separate modeled scenario retains a late completion and its target request
+slot after a timeout. Background handlers leave it pending; a modeled GET_PC
+drain restores reads. The actual target's queue policy, response/status values
+and a usable host entry point are unverified. This is a candidate for dgx1's
+transport incident, not a repair of dgx3's original producer failure. Details
+and falsification criteria are in the incident analysis.
+
 The retained probe uses only the original five address/length pairs. It now
 checks the version before and after each sample, requires two budget reads to
 agree at each endpoint, aborts without retry on disagreement, and preserves

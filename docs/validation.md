@@ -191,6 +191,32 @@ first in `PATH`, including the signing test's GNU `stat` dependency. No driver
 source changed, no firmware was included in Git, and this investigation made
 no further live EC requests. These are local results, not a GitHub CI result.
 
+## Offline transport replay, 2026-09-26
+
+The second hash-pinned replay executes the original lower reader, manual-FIFO
+transaction, cleanup, housekeeping and alert paths against a synthetic
+controller. All **11 transport scenarios and two general-configuration cases**
+passed with Unicorn 2.1.4. A mismatched capsule was refused before execution.
+The cases verify isolated errors followed by healthy reads, incomplete
+completion validation, deferred GET_PC error handling, and a conditional
+retained-completion failure followed by a modeled drain. Model assumptions,
+falsification criteria and firmware addresses are recorded in the
+[incident analysis](dgx1-transport-incident.md#lower-transport-replay).
+
+This establishes behavior of original instructions under supplied inputs;
+neither the real controller's filtering/queue policy nor hardware recovery
+has been verified. The target model's pending completion is not a measurement
+from dgx1. No new live EC request, driver change, firmware flash, service
+restart, or reset was performed. A logs-only check on dgx1 added no lower-level
+error cause. A depth-limited directory-name inventory on dgx3 found generic
+Linux tracing but no identified eSPI firmware trace export; no debugfs data
+handler was read or trace enabled. Both recorded boot IDs remained unchanged.
+
+All **34 project tests** again passed locally on macOS with GNU coreutils first
+in `PATH`. The transport replay is an optional capsule-dependent check, outside
+the standard suite; firmware is not distributed with tests. These results do
+not imply a GitHub CI run or a successful v2 hardware capture.
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from
