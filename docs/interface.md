@@ -106,6 +106,12 @@ value cannot be distinguished, so only one driver should control these slots.
 
 ## Lifecycle
 
+The load-time parameter `read_only=1` disables limit control before hwmon
+registration. All cap attributes become `0444`, and the write callback rejects
+requests with `EPERM`, including zero. The parameter is not writable after load.
+This instance never owns a limit, so removal, suspend and reboot restoration
+perform no register writes. The default remains `read_only=0`.
+
 Driver removal and orderly reboot first fence further writes, then restore
 every limit the driver owns. Suspend restores without fencing; limits are not
 reapplied on resume. Restoration makes up to three attempts, 100 ms apart. A

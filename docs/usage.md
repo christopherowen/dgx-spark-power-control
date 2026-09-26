@@ -2,6 +2,40 @@
 
 [← README](../README.md) · [Installation](installation.md) · [Maintenance](maintenance.md)
 
+## Diagnose unpublished limits
+
+With the module initially unloaded, choose read-only operation at load time:
+
+```sh
+sudo modprobe dgx_spbm_power_control read_only=1
+dgx-power-control diagnose
+dgx-power-control diagnose --json
+```
+
+For a manually built module, replace `modprobe` with:
+
+```sh
+sudo insmod kernel/dgx_spbm_power_control.ko read_only=1
+```
+
+Passing an option to `modprobe` does not change an already loaded instance.
+In this mode all cap attributes are
+read-only and the kernel rejects every limit write, including `automatic`.
+The default, without the option, retains the normal bounded limit controls.
+
+`diagnose` itself only reads, in either mode. It compares the four applied
+limits with their published NVIDIA ceilings and identifies the previously
+observed 20/20 W package, 30/30 W system fallback pattern. Other fallback values
+still report missing limits. JSON contains schema version 1, a UTC timestamp,
+integer microwatts, and `null` for unpublished ceilings. Reads are sequential,
+not an atomic firmware snapshot.
+
+Exit code 0 means the captured limits are published and at or below their
+ceilings; it does not certify EC/GPU health. Exit code 2 means one or more
+ceilings are unpublished or an applied limit exceeds its observed ceiling.
+Exit code 1 means collection failed. The command never clears a cap, resets
+anything, or attempts recovery. See [recovery research](no-restart-recovery.md).
+
 ## Read the telemetry
 
 ```sh

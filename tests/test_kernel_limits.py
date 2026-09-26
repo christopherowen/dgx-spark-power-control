@@ -272,6 +272,16 @@ int main(int argc, char **argv) {
   assert(dgx_spbm_is_visible(&data, hwmon_power, hwmon_power_cap_max, 10) == 0444);
   data.control_enabled = false;
   assert(dgx_spbm_is_visible(&data, hwmon_power, hwmon_power_cap, 10) == 0444);
+ } else if (!strcmp(c, "read_only_lifecycle")) {
+  data.control_enabled = false; /* read_only=1 at probe */
+  for (int channel = 10; channel < 14; channel++) {
+   assert(dgx_spbm_is_visible(&data, hwmon_power, hwmon_power_cap, channel) == 0444);
+   assert(cap(channel, 100000000) == -EPERM);
+   assert(cap(channel, 0) == -EPERM);
+   assert(read_ok(hwmon_power, hwmon_power_cap, channel) > 0);
+  }
+  dgx_spbm_restore(&data, "driver removal", true);
+  assert(limit_writes == 0 && update_requests == 0);
  } else if (!strcmp(c, "set_and_restore")) {
   assert(cap(10, 100000000) == 0);
   assert(reg(DGX_SPBM_PL1_OS) == 100000 && reg(DGX_SPBM_PL1_APPLIED) == 100000);
