@@ -77,6 +77,48 @@ signing test uses GNU `stat`; on macOS the initial full baseline suite had two
 subtest failures from BSD `stat` before reaching the mocked build. Relevant
 userland/C tests passed locally, and the full suite passed on target Linux.
 
+## Passive EC diagnostic validation, 2026-09-26
+
+The repository's optional `diagnostics/ec-publication` probe was built with
+`W=1`, signed with each unit's existing enrolled key, loaded once and unloaded
+on the same affected and healthy P4242 units. There were no driver warnings;
+the usual compiler command-name and missing-`vmlinux` BTF messages remained.
+The collector verified the kernel, DMI, SoC/EC inventory, DSDT digest, available
+memory and unoccupied OEM endpoint before loading. An initial inventory-parser
+mistake refused collection before loading; its corrected handling of current
+versus lowest-supported versions is covered by a regression test.
+
+The affected unit's 24 observations spanned 7.365 seconds: source budgets were
+all zero at both endpoints, time remained 07:31:32 UTC, and seven packet changes
+were observed. The healthy unit's capture spanned 7.362 seconds: package sources
+were 140/142 W, system sources were 231/244/257/265 W, time advanced eight seconds,
+and seven packet changes were observed. The offline analyzer distinguished
+these states. Both runs ended with the probe unloaded, OEM endpoint unbound,
+unchanged boot IDs and no inference workers. No new kernel errors appeared
+during either capture. The pre-existing fan-control state was left untouched.
+
+These are fixed passive reads, not an active request/response experiment or
+proof of inner EC read success. The diagnostic sends no EC command packet or
+event acknowledgement and makes no budget or reset write. No host/service
+restart or persistent installation was performed.
+
+All **30 project tests** passed on target Linux. New tests exercise incomplete
+captures, invalid canaries and dates, partial publication, time regression,
+missing/reordered samples, cleanup evidence and the inventory guard. The
+probe's actual C read function is compiled and exercised against a fake FF-A
+boundary, checking every address/length combination in the nearby region,
+guarded output copying and transport failures. These tests do not validate
+proprietary firmware semantics or perform hardware I/O.
+
+| Hardware-tested source | SHA-256 |
+| --- | --- |
+| `diagnostics/ec-publication/dgx_ec_publication.c` | `1a88898babb9e0fa4cfb1278900868b8b07c013206757d2102251a99434a60af` |
+| `diagnostics/ec-publication/collect.sh` | `df4965cd5abdf14727d259f6179a475806f85b72c64ce7bf5477db298cfb9d8c` |
+| `diagnostics/ec-publication/analyze.py` | `e6383baed5781d2675c49a3a8fd2169731f0453c4b90c89f4242f16418a81bd3` |
+
+Raw captures, signed binaries and prior research prototypes remain in ignored
+`local/`. Only the bounded diagnostic source and summarized findings are tracked.
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from

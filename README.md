@@ -20,6 +20,7 @@ command controls it. NVIDIA's firmware keeps enforcing its limits throughout.
 | Restore NVIDIA's limits afterward | [NVIDIA limits](docs/usage.md#return-to-nvidias-limits) |
 | Check a Spark with pinned low clocks | [Unpublished limits](docs/troubleshooting.md#nvidia-limits-unpublished) |
 | Investigate recovery without restarting | [Firmware investigation](docs/no-restart-recovery.md) |
+| Capture EC publication progress | [Optional passive diagnostic](diagnostics/ec-publication/README.md) |
 | Upgrade or remove the software | [Updates and removal](docs/maintenance.md) |
 
 ## A typical session

@@ -89,6 +89,85 @@ budgets zero and the same stale time mirror. Neither getter repaired the fault.
 The next transport investigation must account for unrelated traffic and prove
 request/response ownership before attempting a producer-recovery command.
 
+### Deferred request lifetime
+
+The EC has a second ownership gap along the RTC-worker path. Callback
+`0xcc830` reads the incoming command through `0xc6770`, then dispatches through
+`0xc4a88`. For an opcode-5 request other than the cached-time branch, it posts
+event 1 to the RTC thread without making a private copy of the request packet.
+The worker later calls `0xc49b0`, ignores its return, and reads the subcommand
+from the same shared packet SRAM at `0x118c00`.
+
+The helper's mutex protects its mailbox-busy polling, not the lifetime of the
+deferred request: it releases the mutex before the caller reads the packet.
+Its timeout is `0x18000` ticks, approximately three seconds at the traced
+32,768 Hz tick rate. The separate response helper also does not preserve the
+request between dispatch and worker execution. This establishes where a
+competing packet can interfere; it does not prove which race occurred in the
+earlier `05 09` experiment. Adding opcode matching only in Linux would detect
+some mismatches but would not repair this firmware ownership problem.
+
+## Passive publication capture
+
+A later capture submitted no EC command packet. It read only SRAM mirrors,
+the current packet SRAM and nondestructive mailbox status, without reading the
+consuming event register. Over roughly 7.36 seconds on the affected unit,
+the packet changed while all six source budgets and the time mirror stayed
+unchanged. The packet opcodes included `0x10`, `0x11`, `0x12` and `0x14`.
+The healthy control published nonzero budgets and advancing time.
+
+The repeatable, narrow version is now in
+[`diagnostics/ec-publication`](../diagnostics/ec-publication/README.md).
+It is an optional temporary probe in this repository, not a second power
+controller. It exposes named observations instead of the original full SRAM
+dump. The collector performs compatibility checks, unloads the probe, and
+verifies cleanup and an unchanged boot ID. Its offline analyzer refuses
+incomplete evidence. Neither it nor the hwmon driver offers active EC commands.
+
+| Repository probe, 2026-09-26 | Affected unit | Healthy control |
+| --- | --- | --- |
+| Initial/final package sources | 0/0 W | 140/142 W |
+| Initial/final system sources | All zero | 231/244/257/265 W |
+| Published time | 07:31:32 UTC throughout | 10:41:44 → 10:41:52 UTC |
+| Sampled packet changes | 7 | 7 |
+| Status before/after each sample | `0x08`; busy bits clear | `0x08`; busy bits clear |
+| Probe unloaded / boot ID unchanged | Yes / yes | Yes / yes |
+
+The observations make a complete EC/mailbox stall unlikely. They do not show
+that every task is running, that no transaction is outstanding between samples,
+or that the physical RTC advances. The inner-read-status limitation still
+applies. Inference remained stopped; clocks were not retested under load.
+
+### Initialization and publication gates
+
+The traced producers have different dependencies:
+
+| Producer | Traced dependency | What remains unknown |
+| --- | --- | --- |
+| RTC mirror | Thread `0xc188c` initially waits for bit 1 of event object `0x11a044`; a one-second timer posts its periodic event. Reader `0xc14d4` uses logical I2C bus 0, address `0x32`. | Current task/event state, whether reads continue, and physical RTC progress. |
+| Package limits and thermal policy | Thermal thread `0xc3a28` requires power state 2, initialization flags and publication enable. Its sensor initialization uses logical I2C bus 2 before the nominal-limit publisher. | Whether this specific task reaches publication and which gate, if any, prevents it. |
+| System limits | PLTRST work `0xc2760` initializes the shared window if needed, signals event `0x40`, and calls publisher `0xc3e24`. A conditional boot-ready wait has a five-second timeout; its result does not gate the publisher. | Whether this work item reaches/completes the publisher, or a later initialization clears its output. |
+| Background power/temperature queries | Query threads initially wait for boot-ready once; their subsequent loops check power state 2 and publication enable. | Activity supports progress on these paths, not the state of the separate producer tasks. |
+
+Window initialization `0xc4820` clears the budget and time mirrors, preserves
+selected PD/metadata bytes, clears three thermal initialization flags, and
+reads/publishes RTC time once. The preserved-byte table does not include
+budgets or RTC time. A valid time after initialization therefore does not show
+that the periodic worker subsequently ran.
+
+The power-on wait at `0xc1b08` is asymmetric: its polled-PLTRST branch posts
+boot-ready bit 1, while its event-`0x40` branch returns without that post.
+This is a candidate lifecycle race, **not an established cause**. In particular,
+the system publisher's bounded wait means a missing boot-ready bit alone
+cannot explain indefinitely zero system budgets if that work item completes.
+The active query traffic also argues against assuming all tasks are suspended.
+RTC and thermal initialization use different logical I2C buses, so a shared
+bus fault has not been established either.
+
+These distinctions leave selective task progress, work-queue progress and
+shared-window reinitialization as investigation targets. No host-exposed,
+non-disruptive control for those internal states has yet been established.
+
 ## Firmware paths checked
 
 These are interpretations of distributed release capsules matching the
@@ -120,6 +199,13 @@ call path must be traced before sending it; a nearby command number or a name
 resembling “resume” is insufficient. Direct EC thread state or a firmware trace
 would help distinguish a task waiting for initialization from a stalled work
 queue or an incorrect power-state observation.
+
+Before any further active query, the generic transport needs an ownership
+solution covering both firmware background senders and deferred EC workers.
+The passive capture can measure the publication symptoms without depending on
+that generic request path, but cannot reveal EC thread stacks or prove which
+internal task is waiting. Those are the remaining evidence gaps, not a reason
+to expose guessed repair commands through the repository.
 
 A successful experiment must preserve the host boot ID and workload process
 identity, restore advancing EC publication, restore valid EC budgets and their
