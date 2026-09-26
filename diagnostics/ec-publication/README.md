@@ -29,7 +29,24 @@ the validated DSDT digest. The module separately checks DMI, the FF-A endpoint,
 API 1.2, and EC-version canaries. These are compatibility checks, not live flash
 attestation. Do not bypass the collector to use another firmware version.
 
-## What it observes
+## Offline firmware replay
+
+For investigation without hardware access, the optional
+`replay_firmware_reads.py` executes the original read wrapper in emulated
+memory. In a separate Python environment with `unicorn==2.1.4` installed, run:
+
+```sh
+python3 diagnostics/ec-publication/replay_firmware_reads.py /path/to/socfw.cap
+```
+
+It verifies the release capsule hash and checks nine fixed read/failure cases
+plus the initialization prefix's channel configuration. Bus responses and
+housekeeping are simulated. It neither loads a module nor contacts a machine,
+and does not reproduce the physical transport incident. See the
+[incident analysis](../../docs/dgx1-transport-incident.md) for interpretation
+and the next evidence required. The capsule is not included in this repository.
+
+## What the live probe observes
 
 Loading the module performs one roughly eight-second capture, then exposes
 only cached root-readable attributes. Re-reading those files sends no further

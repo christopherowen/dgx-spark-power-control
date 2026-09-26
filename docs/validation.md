@@ -174,6 +174,23 @@ not been obtained**, and the comparison command has only synthetic v2 evidence.
 | `diagnostics/ec-publication/collect.sh` | `8614b1b03e597bca9cdae88bd41967771b307f7b52a9580ee32eee76cf634ca5` |
 | `diagnostics/ec-publication/analyze.py` | `a2cc2108f04769c7bcc81789d2cf4e70927ea1e7567ca3fe6d5bb4ec5ff4d4ce` |
 
+## Offline incident replay, 2026-09-26
+
+The [dgx1 incident analysis](dgx1-transport-incident.md) adds an exact-source
+timeline and a capsule-hash-pinned emulator for the original SoC read wrapper.
+With Unicorn 2.1.4, all nine fixed read cases and the initialization-prefix
+configuration check passed. A mismatched capsule was refused before execution.
+The replay verifies chunking, partial output, early failure, and housekeeping
+control flow; bus behavior and housekeeping internals are simulated. It does
+not reproduce the persistent transport failure or prove its cause. The
+configuration prefix requests a 4096-byte maximum read and 64-byte maximum
+payload, rather than establishing a 64-byte maximum read.
+
+`./scripts/check` also passed all 34 tests on macOS with Homebrew GNU coreutils
+first in `PATH`, including the signing test's GNU `stat` dependency. No driver
+source changed, no firmware was included in Git, and this investigation made
+no further live EC requests. These are local results, not a GitHub CI result.
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from

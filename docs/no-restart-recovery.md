@@ -213,6 +213,12 @@ established; this is treated as an investigation-induced incident. The larger
 request was not repeated and was never sent on the affected unit. It is
 excluded from the repository implementation, and live EC experiments stopped.
 
+The [dgx1 incident analysis](dgx1-transport-incident.md) records the timeline,
+experimental design failure, offline replay, and remaining causal questions.
+In particular, 64-byte wrapper chunks must not be confused with the firmware's
+requested 4096-byte maximum read size. A simple read-boundary violation has
+not been established as the cause.
+
 The retained probe uses only the original five address/length pairs. It now
 checks the version before and after each sample, requires two budget reads to
 agree at each endpoint, aborts without retry on disagreement, and preserves
