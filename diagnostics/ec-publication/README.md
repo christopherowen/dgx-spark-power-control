@@ -83,13 +83,18 @@ RTC reads, query loops and timer callback instructions:
 python3 diagnostics/ec-publication/replay_ec_producers.py /path/to/ec_fused.cap
 ```
 
-Its 14 fixed cases distinguish a returned error from a wait that never returns.
+Its 16 fixed cases distinguish a returned error from a wait that never returns.
 All ten sensor-initialization writes can return errors and the thermal path
 still publishes 140/142 W package limits. A failed notification also leaves
 those stores intact. A supplied wait inside the notification stops before fan
 initialization but after the package stores. These results constrain where an
 uninterrupted first thermal iteration could stop; a later window clear can
 still erase earlier publication.
+
+Two further cases execute window initialization between thermal iterations.
+The actual sensor-init flag `0x11aa99` is cleared, and the supplied next
+iteration retries all ten sensor writes, including when they return errors.
+Later policy work and scheduling between these iterations are not executed.
 
 The initialized device table and executed wrappers select separate controllers
 and mutexes for RTC (bus 0, mutex `0x11869c`) and sensors (bus 2, mutex
@@ -121,6 +126,20 @@ publication before notification, and supplied data-consumption/owner-resume
 orderings. Mutex ownership, scheduler progress, status bits and hardware
 handshakes are modeled inputs. This does not read the live owner or implement
 a drain operation. See [mailbox wait findings](../../docs/no-restart-recovery.md#mailbox-mutex-and-read-based-recovery).
+
+The timer replay follows startup initialization and the kernel's periodic
+expiry path:
+
+```sh
+python3 diagnostics/ec-publication/replay_ec_timer.py /path/to/ec_fused.cap
+```
+
+Three cases check timer setup before static-thread creation, periodic requeue
+before RTC event posting, and the same ordering despite a supplied separate
+work-submission error. Earlier startup stages, other initialization hooks,
+timeout queue operations, time and work submission are modeled. The actual
+scheduler and live timer state are not observed. See the
+[startup and ownership cross-check](../../docs/ec-startup-cross-check.md).
 
 ## What the live probe observes
 

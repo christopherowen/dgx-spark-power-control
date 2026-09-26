@@ -282,6 +282,34 @@ follow-up. The live stalled owner and a recovery method remain unidentified.
 These optional capsule-dependent checks are separate from the standard suite
 and do not constitute hardware validation or a GitHub CI result.
 
+## Offline startup and ownership cross-check, 2026-09-26
+
+The expanded producer replay passed **16 cases and the three-bus topology
+check**. Two new cases preserve the thermal thread context across window
+initialization and supply arrival at its next loop head. The initializer
+clears `0x11aa99`, and both successful and returned-error sensor transactions
+are attempted again. All ten sensor writes repeat; package limits and fan
+floors are published. This does not execute intervening thermal policy or
+the scheduler.
+
+The new [timer replay](../diagnostics/ec-publication/replay_ec_timer.py)
+passed **three cases** using Unicorn 2.1.4. Original startup, timer-start and
+expiry instructions initialize the periodic timer before static-thread setup
+and queue the next expiry before posting the RTC event and submitting
+separate work. A supplied work-submission error does not undo the preceding
+queue insertion or event post. Other startup hooks, the timeout queue, tick
+source and event/work boundaries are simulated. See the
+[startup cross-check](ec-startup-cross-check.md) for the static evidence and
+the corrected command-to-lock map.
+
+Both replays refused a mismatched capsule and an unreviewed execution entry.
+All **34 project tests** passed locally on macOS with GNU coreutils first in
+`PATH`. The updated external research documents were read over SSH into
+ignored review snapshots; their working files were not edited. No live EC
+request, driver change, service restart, reset or new hardware validation
+occurred. The live stalled task and no-restart recovery remain unestablished.
+These are local results, not a GitHub CI result.
+
 ## Not yet validated
 
 - **No power-limit write has been performed.** Arbitration is inferred from

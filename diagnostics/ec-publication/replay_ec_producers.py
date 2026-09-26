@@ -192,6 +192,39 @@ def replay(image):
         require({call["address"] for call in model.mutex_calls} == {"0x1186d4"}, name)
         results.append(result)
 
+    # Original sensor-init flag is 0x11aa99, not the data-structure base
+    # 0x11a8f9. Execute window reinitialization between two bounded passes.
+    for name, i2c_status in (("sensor_init_retried_after_window_reset", 0),
+                             ("sensor_errors_retried_after_window_reset", -5)):
+        model = ProducerReplay(image)
+        model.i2c_status = i2c_status
+        model.uc.mem_write(STATE, b"\x02")
+        model.uc.mem_write(0x11AA93, b"\x01")
+        model.run(0xC3A28, 0xD0848, stop_at=(0xC3AF8,))
+        require(model.byte(0x11AA99) == 1 and len(model.i2c_calls) == 10, name)
+        context = model.uc.context_save()
+        stack = bytes(model.uc.mem_read(STACK - 0x100, 0x100))
+        model.run(0xC4820)
+        require(bytes(model.uc.mem_read(0x11AA97, 3)) == b"\0\0\0", name)
+        require(not any(model.uc.mem_read(WINDOW + 0x114, 24)), name)
+        before_retry = len(model.i2c_calls)
+        # Supply arrival at the next loop head. Later policy work and the
+        # scheduler remain outside the model; thread-local registers survive.
+        model.uc.context_restore(context)
+        model.uc.mem_write(STACK - 0x100, stack)
+        model.halted = None
+        model.stop_at = {0xC3AF8}
+        model.uc.emu_start(0xC3A9D, STOP, count=50000)
+        require(model.halted is not None and model.halted.get("pc") == "0xc3af8", name)
+        retry_calls = model.i2c_calls[before_retry:]
+        result = model.snapshot(name)
+        require(len(retry_calls) == 10 and all(x["device"] == "0xcfdac" for x in retry_calls), name)
+        require(result["package_limits_mw"] == [140000, 142000], name)
+        require(result["fan_floor_bytes"] == [255] * 4, name)
+        require(model.byte(0x11AA99) == 1, name)
+        result["sensor_writes_after_window_reset"] = len(retry_calls)
+        results.append(result)
+
     for name, state, enabled in (("thermal_wrong_state", 3, 1),
                                  ("thermal_publication_disabled", 2, 0)):
         model = ProducerReplay(image)
@@ -292,6 +325,7 @@ def replay(image):
                 "notification returns a supplied value or stops at a hypothetical wait",
                 "event waits return matching supplied bits or stop; no interrupt timing is inferred",
                 "thermal execution stops before the later sensor/policy and lock paths at 0xc3af8",
+                "window-reset retry supplies arrival at the next thermal loop head with preserved thread context",
                 "query interleaving supplies sleep completion and preserved thread context; state 2 and enable remain set",
             ],
             "live_cause_established": False, "live_recovery_established": False,

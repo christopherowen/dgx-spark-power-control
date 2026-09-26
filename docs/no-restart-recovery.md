@@ -246,6 +246,13 @@ drain has been attempted.
 
 ## Firmware paths checked
 
+The [startup and ownership cross-check](ec-startup-cross-check.md) verifies
+that window initialization clears the actual sensor-init flag and that the
+timer is configured before static-thread creation. Periodic requeue occurs
+before the RTC callback posts its event and submits separate work. These
+results exclude the proposed uncleared sensor latch and work-submission-based
+timer-stop explanations; they do not identify the live stalled task.
+
 These are interpretations of distributed release capsules matching the
 reported EC 3.5.8 and SoC 2.155.11 versions, not live flash readbacks or a
 vendor-supported ABI. The original baseline repository commit is
