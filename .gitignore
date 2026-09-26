@@ -1,0 +1,25 @@
+*.ko
+*.o
+*.mod
+*.mod.c
+*.order
+*.symvers
+.*.cmd
+*.d
+*.dwo
+.tmp_*
+__pycache__/
+.pytest_cache/
+.venv/
+# Signing material belongs outside the checkout.
+*.priv
+*.pem
+*.key
+*.der
+*.crt
+*.p12
+*.x509
+.keygen.*/
+# Hardware captures are private machine logs; keep them in local/.
+*.log
+/local/
