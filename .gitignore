@@ -23,3 +23,6 @@ __pycache__/
 # Hardware captures are private machine logs; keep them in local/.
 *.log
 /local/
+
+# Zephyr version-identification workspace: reference builds, SDKs, extracted fingerprints.
+/zephyr-id/

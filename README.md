@@ -23,6 +23,12 @@ command controls it. NVIDIA's firmware keeps enforcing its limits throughout.
 | Check EC startup, retry and timer hypotheses | [Startup and ownership cross-check](docs/ec-startup-cross-check.md) |
 | Capture EC publication progress | [Optional passive diagnostic](diagnostics/ec-publication/README.md) |
 | Trace existing Linux firmware calls | [Passive FF-A trace](diagnostics/ffa-trace/README.md) |
+| Understand the EC read-path fault investigation | [eSPI read static analysis](docs/espi-read-static-analysis.md) |
+| Know who executes an EC read and owns completions | [EC read executor](docs/ec-read-executor.md) |
+| Review the SoC/EC concurrency analysis | [Concurrency analysis](docs/soc-concurrency-analysis.md) |
+| Trace why EC producers stop publishing | [EC producer dependencies](docs/ec-producer-dependencies.md) |
+| Find unread diagnostic fields in the firmware | [Diagnostic read candidates](docs/diagnostic-read-candidates.md) |
+| Understand the FF-A EC bridge (and USB-C PD) | [NVIDIA FF-A EC bridge](docs/nvidia-ffa-ec-bridge.md) |
 | Upgrade or remove the software | [Updates and removal](docs/maintenance.md) |
 
 ## A typical session
