@@ -28,3 +28,11 @@ Contributions are under GPL-2.0-only. Do not include proprietary firmware,
 ACPI table dumps, signing keys, generated modules, private machine logs, or
 credentials.
 Keep hardware captures and logs under the ignored `local/` directory.
+
+The optional `diagnostics/ec-publication` module has a separate, release-pinned
+read-only contract because the EC SRAM fields have no `_DSM` map. It is not
+built or installed with the hwmon driver. Keep its fixed allowlist and bounded
+capture; do not add arbitrary memory access, packet submission, event
+acknowledgement, or recovery writes to a diagnostic interface. Changes require
+firmware-path review, a target-kernel build, and a recorded hardware result or
+explicit testing limitation.

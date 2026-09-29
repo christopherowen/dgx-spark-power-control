@@ -4,6 +4,8 @@
 import contextlib
 import errno
 import io
+import json
+import logging
 import tempfile
 import unittest
 from pathlib import Path
@@ -122,6 +124,49 @@ class UserlandFailureTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 CONTROL.read_integer(path)
 
+    def test_diagnose_never_writes_and_distinguishes_published_limits(self):
+        device = make_device(self.root)
+        with patch.object(CONTROL, "write_cap", side_effect=AssertionError("must not write")):
+            report = CONTROL.diagnose(device)
+            self.assertEqual(report["assessment"], "limits_match_nvidia")
+            self.assertIn("does not establish", report["message"])
+            (device / "power11_cap").write_text("100000000\n")
+            self.assertEqual(CONTROL.diagnose(device)["assessment"], "applied_below_nvidia")
+            (device / "power11_cap").write_text("150000000\n")
+            self.assertEqual(CONTROL.diagnose(device)["applied_above_nvidia"], ["pl1"])
+
+    def test_diagnose_reports_full_and_partial_unpublished_state(self):
+        device = make_device(self.root)
+        for channel, mw in zip(range(11, 15), (20, 20, 30, 30)):
+            (device / f"power{channel}_cap").write_text(f"{mw * 1_000_000}\n")
+        original = CONTROL.read_integer
+        def missing(path):
+            return None if path.name.endswith("_cap_max") else original(path)
+        with patch.object(CONTROL, "read_integer", side_effect=missing):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = CONTROL.main(["--hwmon-root", str(self.root), "diagnose", "--json"])
+            report = json.loads(output.getvalue())
+            self.assertEqual(code, 2)
+            self.assertEqual(report["assessment"], "nvidia_limits_unpublished")
+            self.assertEqual(report["unpublished_limits"], list(CONTROL.LIMITS))
+            self.assertTrue(report["matches_observed_fallback"])
+            self.assertEqual(report["limits"]["syspl1"]["applied_uw"], 30_000_000)
+            self.assertIn("No restart-free", report["message"])
+        with patch.object(CONTROL, "read_integer", unpublished("power12_cap_max")):
+            report = CONTROL.diagnose(device)
+            self.assertEqual(report["unpublished_limits"], ["pl2"])
+            self.assertFalse(report["matches_observed_fallback"])
+
+    def test_diagnose_read_failure_cannot_look_healthy(self):
+        device = make_device(self.root)
+        (device / "power11_cap").write_text("0\n")
+        with self.assertRaisesRegex(RuntimeError, "applied limit"):
+            CONTROL.diagnose(device)
+        (device / "power11_cap").unlink()
+        with self.assertLogs("dgx-power-control", "ERROR"):
+            self.assertEqual(CONTROL.main(["--hwmon-root", str(self.root), "diagnose"]), 1)
+
     def test_main_reports_failures_without_traceback(self):
         make_device(self.root)
         root = ["--hwmon-root", str(self.root)]
@@ -136,6 +181,49 @@ class UserlandFailureTests(unittest.TestCase):
         self.assertIn("control=available", output.getvalue())
         self.assertEqual(CONTROL.main(root + ["set-limit", "pl2", "100"]), 0)
         self.assertEqual((self.root / "hwmon3/power12_cap").read_text(), "100000000\n")
+
+    def test_debug_keeps_json_stdout_and_does_not_add_attribute_reads(self):
+        make_device(self.root)
+        self.addCleanup(CONTROL.LOG.setLevel, CONTROL.LOG.level)
+        original = Path.read_text
+        reads = []
+
+        def observed(path, *args, **kwargs):
+            reads.append(str(path))
+            return original(path, *args, **kwargs)
+
+        args = ["--hwmon-root", str(self.root), "diagnose", "--json"]
+        normal, debug = io.StringIO(), io.StringIO()
+        with patch.object(Path, "read_text", observed), contextlib.redirect_stdout(normal):
+            self.assertEqual(CONTROL.main(args), 0)
+        normal_reads = reads.copy()
+        reads.clear()
+        with patch.object(Path, "read_text", observed), contextlib.redirect_stdout(debug), \
+                self.assertLogs("dgx-power-control", "DEBUG") as logs:
+            self.assertEqual(CONTROL.main(["--debug"] + args), 0)
+        self.assertEqual(reads, normal_reads)
+        a, b = json.loads(normal.getvalue()), json.loads(debug.getvalue())
+        a.pop("captured_at"); b.pop("captured_at")
+        self.assertEqual(a, b)
+        records = [json.loads(record.getMessage()) for record in logs.records]
+        self.assertEqual(records[0]["event"], "command_begin")
+        self.assertEqual(records[-1]["exit_code"], 0)
+        self.assertEqual(sum(x["event"] == "read_begin" for x in records), len(reads))
+        self.assertFalse(any(x["event"].startswith("write") for x in records))
+
+    def test_debug_preserves_enodata_and_io_failure_semantics(self):
+        for code in (errno.ENODATA, errno.EIO):
+            with patch.object(Path, "read_text", side_effect=OSError(code, "simulated")), \
+                    self.assertLogs("dgx-power-control", logging.DEBUG) as logs:
+                if code == errno.ENODATA:
+                    self.assertIsNone(CONTROL.read_integer(self.root / "power11_cap_max"))
+                else:
+                    with self.assertRaises(OSError):
+                        CONTROL.read_integer(self.root / "power11_cap_max")
+            last = json.loads(logs.records[-1].getMessage())
+            self.assertEqual(last["event"], "read_error")
+            self.assertEqual(last["errno"], code)
+            self.assertGreaterEqual(last["elapsed_ns"], 0)
 
 
 if __name__ == "__main__":

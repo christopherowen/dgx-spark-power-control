@@ -19,6 +19,16 @@ command controls it. NVIDIA's firmware keeps enforcing its limits throughout.
 | Cap power for a job | [Lower a limit](docs/usage.md#lower-a-limit-for-a-job) |
 | Restore NVIDIA's limits afterward | [NVIDIA limits](docs/usage.md#return-to-nvidias-limits) |
 | Check a Spark with pinned low clocks | [Unpublished limits](docs/troubleshooting.md#nvidia-limits-unpublished) |
+| Investigate recovery without restarting | [Firmware investigation](docs/no-restart-recovery.md) |
+| Check EC startup, retry and timer hypotheses | [Startup and ownership cross-check](docs/ec-startup-cross-check.md) |
+| Capture EC publication progress | [Optional passive diagnostic](diagnostics/ec-publication/README.md) |
+| Trace existing Linux firmware calls | [Passive FF-A trace](diagnostics/ffa-trace/README.md) |
+| Understand the EC read-path fault investigation | [eSPI read static analysis](docs/espi-read-static-analysis.md) |
+| Know who executes an EC read and owns completions | [EC read executor](docs/ec-read-executor.md) |
+| Review the SoC/EC concurrency analysis | [Concurrency analysis](docs/soc-concurrency-analysis.md) |
+| Trace why EC producers stop publishing | [EC producer dependencies](docs/ec-producer-dependencies.md) |
+| Find unread diagnostic fields in the firmware | [Diagnostic read candidates](docs/diagnostic-read-candidates.md) |
+| Understand the FF-A EC bridge (and USB-C PD) | [NVIDIA FF-A EC bridge](docs/nvidia-ffa-ec-bridge.md) |
 | Upgrade or remove the software | [Updates and removal](docs/maintenance.md) |
 
 ## A typical session
@@ -78,8 +88,8 @@ You need Python 3.10+, matching NVIDIA kernel headers and build tools, and an
 enrolled local signing certificate when Secure Boot is enabled. DKMS is optional.
 
 This is an independent, experimental project, unaffiliated with NVIDIA.
-Version **0.1.0** has been compiled and tested without hardware. **It has not yet
-been loaded on a Spark**, and power-limit writes are not yet hardware-validated;
+The development driver has been temporarily loaded in explicit read-only mode
+on healthy and affected Sparks. Power-limit writes are not yet hardware-validated;
 see [validation](docs/validation.md). The firmware's limit arbitration is
 inferred, so every write is verified against the applied value. A
 disagreement undoes the write.
@@ -91,6 +101,11 @@ source and packaging contracts, userland failure paths, the signing wrapper,
 and the driver's actual C functions against a simulated SPBM page. GitHub
 Actions runs the same checks. Kernel compilation and real firmware behavior
 need a compatible Spark.
+
+For diagnosis, load with `read_only=1` to disable every limit write, then run
+`dgx-power-control diagnose --json`. The command reports published and applied
+limits; it does not reset the EC or repair missing firmware data. See
+[diagnostic usage](docs/usage.md#diagnose-unpublished-limits).
 
 - [Firmware interface](docs/interface.md)
 - [Validation record](docs/validation.md)

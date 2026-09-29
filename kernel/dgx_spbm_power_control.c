@@ -52,6 +52,10 @@
 #define DGX_SPBM_FIRST_LIMIT_CHANNEL	10
 #define DGX_SPBM_DRIVER_VERSION		"0.1.0"
 
+static bool read_only;
+module_param(read_only, bool, 0400);
+MODULE_PARM_DESC(read_only, "Expose telemetry with all power-limit writes disabled");
+
 static const guid_t dgx_spbm_dsm_guid =
 	GUID_INIT(0x12345678, 0x1234, 0x1234,
 		  0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc);
@@ -860,7 +864,7 @@ static int dgx_spbm_probe(struct platform_device *pdev)
 				     "SPBM telemetry inactive: sys_total=%u mW\n",
 				     total);
 
-	data->control_enabled = true;
+	data->control_enabled = !read_only;
 	for (limit = 0; limit < ARRAY_SIZE(dgx_spbm_limits); limit++) {
 		os = dgx_spbm_read(data, dgx_spbm_limits[limit].os);
 		ec = dgx_spbm_read(data, dgx_spbm_limits[limit].ec);

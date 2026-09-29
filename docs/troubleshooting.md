@@ -35,8 +35,9 @@ this driver binds its platform device. Load only one of them.
 
 ## Control disabled
 
-`control=disabled` in status, or `existing … OS limit … power-limit control
-disabled` in the log, means an OS limit slot was nonzero at probe time.
+`control=disabled` in status can mean the module was intentionally loaded with
+`read_only=1`; no reload is needed for diagnosis. Otherwise, `existing … OS limit
+… power-limit control disabled` in the log means an OS limit slot was nonzero at probe time.
 Telemetry still works. Another tool, usually spark_hwmon, set that limit. Clear
 it with the same tool (with spark_hwmon: write `0` to its `power*_cap`), unload
 that tool, then reload this driver:
@@ -55,13 +56,20 @@ The firmware then applies a fallback limit. On one reference Spark this was
 20 W package and 30 W system, well below normal. That Spark's GPU stayed
 near 550 MHz under load while `nvidia-smi` reported no clock-event reasons.
 
-This driver refuses writes for those limits: there is no NVIDIA value to bound
-them, and raising limits is out of scope. The state reflects a firmware limit
-transfer that did not complete. Loading, unloading, or writing through this
-driver will not repair it. Record the status output and kernel log, then follow
-NVIDIA's firmware update and support guidance. NVIDIA forum reports of
-this low-clock symptom say a warm reboot does not clear it, while removing
-AC power for a minute or more does. This project has not verified either claim.
+This driver refuses nonzero writes for those limits: there is no NVIDIA value
+to bound them, and raising limits is out of scope. Zero SoC-side copies do not
+identify the cause by themselves. A subsequent firmware investigation also
+found zero EC-visible source limits and a stale EC time mirror on the affected
+reference unit, pointing upstream of a lost SoC transfer. A limitation in
+firmware's read-status reporting prevents treating a successful FF-A call alone
+as proof of a successful EC read.
+
+Use `dgx-power-control diagnose --json` to preserve the budget state without
+writing. Loading, unloading, or using `automatic` cannot republish EC data.
+A no-restart repair has not been demonstrated. An EC software-reset path was
+identified, but it still depends on host power-down and remains untested.
+See the [firmware investigation](no-restart-recovery.md) for the evidence,
+excluded candidates, and what a live repair must establish.
 
 ## ESTALE, ETIMEDOUT, or restore errors
 
